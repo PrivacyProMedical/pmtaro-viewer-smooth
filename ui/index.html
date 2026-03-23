@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en" class="scheme-dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Smooth 2D3D</title>
+  <link href="./tailwind.min.css" rel="stylesheet">
+  <style>
+    body {
+      position: fixed;
+      top: 0;
+      left: 0;
+      width: 100%;
+      height: 100%;
+      display: flex;
+      flex-direction: column;
+    }
+    #app {
+      position: relative;
+      margin: 0;
+    }
+  </style>
+</head>
+<body class="bg-slate-900 text-white">
+  <div id="app" x-data="app" class="p-3">
+    <div class="container max-w-md mx-auto">
+      <form class="flex flex-col" @submit.prevent="runSmooth">
+        <label class="flex flex-col mt-2">
+          <span>Input</span>
+          <input type="text" x-model="selectionName" readonly id="dropzone" :class="dragHover ? 'bg-slate-700' : 'bg-slate-800'" class="border-slate-500 rounded mt-1" placeholder="Drop target here…" />
+        </label>
+        <label class="flex flex-col mt-4">
+          <span>Sigma</span>
+          <input type="number" x-model.number="sigma" class="bg-slate-800 border-slate-500 rounded mt-1" placeholder="0.3" step="0.1" />
+        </label>
+        <label class="flex flex-col mt-4">
+          <span>Output Folder</span>
+          <input type="text" x-model="outputDir" readonly class="bg-slate-800 border-slate-500 rounded mt-1" :title="outputDir" @click="selectOutputDir()" />
+        </label>
+        <button type="submit" class="inline-flex justify-center items-center text-center bg-sky-600 px-3 py-2 mt-4 rounded hover:cursor-pointer disabled:cursor-not-allowed disabled:bg-sky-300/30 disabled:text-gray-300" :disabled="!selection || selectionType === '3D' || !outputDir || processing">
+          <template x-if="processing">
+            <svg class="mr-3 -ml-1 size-5 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          </template>
+          <span x-text="processing ? 'Processing…' : `Smooth${selectionType}${selectionType === '3D' ? ' (WIP)' : ''}`"></span>
+        </button>
+      </form>
+      <br />
+      <template x-if="output">
+        <p>
+          Output:<br />
+          <a href="#" :title="output.filePath" @click.prevent="openWithVolView(output.filePath, output.fileName)" class="text-blue-500 hover:text-blue-400 hover:underline">
+            <code x-text="output.fileName"></code>
+          </a>
+          <span class="text-sm text-gray-400 hover:text-white hover:cursor-pointer ml-2" @click.prevent.stop="showInFolder(output.filePath)">Show in Folder</span>
+        </p>
+      </template>
+      <template x-if="output">
+        <iframe
+          id="vIframe"
+          src="about:blank"
+          frameborder="0"
+          width="400"
+          height="300"
+          class="mt-1 hidden"
+        ></iframe>
+      </template>
+    </div>
+  </div>
+
+  <script src="./alpinejs@3.15.8/dist/cdn.min.js" defer></script>
+  <script>
+    const app = document.getElementById('app');
+    let data = null;
+
+    document.addEventListener('alpine:init', () => {
+      Alpine.data('app', () => {
+        return {
+          _selection: null,
+          get selection() {
+            return this._selection;
+          },
+          get selectionName() {
+            return this._selection?.name ?? '';
+          },
+          get selectionType() {
+            return {
+              'series': '3D',
+              'instance': '2D',
+            }[this._selection?.slot] ?? '';
+          },
+          set selection(val) {
+            this._selection = val;
+            if (this.output) {
+              this.output = null;
+            }
+          },
+          dragHover: false,
+          dragTimeout: null,
+
+          // ...
+          processing: false,
+          sigma: 0.3,
+          outputDir: '',
+          output: null,
+          async runSmooth() {
+            if (this.processing) return;
+            this.processing = true;
+
+            this.output = null;
+            try {
+              const res = await $electron?.api('@pmt/smooth/smooth', JSON.parse(JSON.stringify(this.selection)), parseFloat(this.sigma), this.outputDir);
+              if (res) {
+                if (typeof res === 'string') {
+                  showInFolder(res);
+                } else if (res.path) {
+                  this.output = { filePath: res.path, fileName: res.name };
+                  const volviewURL = await openWithVolView(this.output.filePath, this.output.fileName, false);
+                  if (volviewURL) {
+                    const vIframe = document.getElementById('vIframe');
+                    if (vIframe) {
+                      vIframe.src = volviewURL;
+                      setTimeout(() => {
+                        vIframe.classList.remove('hidden');
+                      }, 1000);
+                    }
+                  }
+                }
+              }
+              console.log('output:', res);
+            } catch (err) {
+              console.error(err);
+            } finally {
+              this.processing = false;
+            }
+          },
+        };
+      });
+      setTimeout(() => {
+        data = app._x_dataStack[0];
+      }, 100);
+    });
+
+    window.addEventListener('DOMContentLoaded', () => $electron?.onLoaded());
+    window.addEventListener('message', async (e) => {
+      if (e.source !== window) {
+        return;
+      }
+      // ...
+    });
+    const dropzone = document.getElementById('dropzone');
+    dropzone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      data.dragHover = true;
+      if (data.dragTimeout !== null) {
+        clearTimeout(data.dragTimeout);
+        data.dragTimeout = null;
+      }
+    });
+    dropzone.addEventListener('dragleave', function (e) {
+      data.dragTimeout = setTimeout(() => {
+        data.dragHover = false;
+        data.dragTimeout = null;
+      }, 50);
+    });
+    dropzone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      data.dragHover = false;
+      try {
+        const payload = JSON.parse(e.dataTransfer.getData('text') || 'null');
+        if (payload?.from === 'patient' && payload.selection) {
+          console.log('drop:', payload);
+          if (['series', 'instance'].includes(payload.selection.slot)) {
+            data.selection = payload.selection;
+          } else {
+            data.selection = null;
+          }
+        }
+      } catch (err) {}
+    });
+
+    async function selectOutputDir() {
+      const { canceled, filePaths: fullPaths } = await $electron.showOpenDialog({
+        properties: ['openDirectory'],
+      });
+      if (!canceled && fullPaths[0]) {
+        data.outputDir = fullPaths[0];
+      } else {
+        data.outputDir = '';
+      }
+    }
+
+    function showInFolder(path) {
+      $electron?.showInFolder(path);
+    }
+
+    async function openWithVolView(filePath, fileName, newWindow) {
+      return $electron.openWithVolView(filePath, fileName, { newWindow });
+    }
+  </script>
+</body>
+</html>
