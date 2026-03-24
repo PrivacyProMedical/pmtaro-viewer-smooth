@@ -48,7 +48,7 @@ export default {
   },
   async setup(ctx = {/* __file__, __name__, __author__, __version__ */}, electronApp) {
     return electronApp.whenReady().then(() => {
-      __init__(ctx);
+      return __init__(ctx);
     });
   },
   ui: {
