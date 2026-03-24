@@ -1,6 +1,6 @@
 import os from 'node:os';
 import fs from 'node:fs';
-import { fileURLToPath, pathToFileURL } from 'node:url';
+import { fileURLToPath } from 'node:url';
 import { dirname, basename, join } from 'node:path';
 
 import { loadPyodide } from 'pyodide';
@@ -49,10 +49,10 @@ async function __init__(ctx) {
       let whl = fs.readdirSync(packageCacheDir).find(f => (f.startsWith(`${p}-`) || f.startsWith(`${p}_`)) && f.endsWith('.whl'));
       if (whl) whl = join(packageCacheDir, whl);
       if (whl && fs.existsSync(whl)) {
-        const tmp = join(os.tmpdir(), basename(whl));
-        fs.copyFileSync(whl, tmp);
-        await micropip.install(pathToFileURL(tmp).href);
-        fs.unlinkSync(tmp);
+        const tmp = `/tmp/${basename(whl)}`;
+        pyodide.FS.writeFile(tmp, fs.readFileSync(whl));
+        await micropip.install(`emfs://${tmp}`);
+        pyodide.FS.unlink(tmp);
       } else {
         await micropip.install(p);
       }
