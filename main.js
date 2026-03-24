@@ -1,6 +1,6 @@
 import os from 'node:os';
 import fs from 'node:fs';
-import { fileURLToPath } from 'node:url';
+import { fileURLToPath, pathToFileURL } from 'node:url';
 import { dirname, join } from 'node:path';
 
 import { loadPyodide } from 'pyodide';
@@ -27,13 +27,21 @@ async function __init__(ctx) {
     py = fs.readFileSync(main_py, 'utf-8');
   }
   if (py) {
-    pyodide = await loadPyodide();
+    const packageCacheDir = join(dirname(main_py), 'requirements');
+    if (!fs.existsSync(packageCacheDir)) {
+      fs.mkdirSync(packageCacheDir);
+    }
+    pyodide = await loadPyodide({ packageCacheDir });
     await pyodide.loadPackage('micropip');
     const micropip = pyodide.pyimport('micropip');
-    await micropip.install('setuptools');
-    await micropip.install('pydicom');
-    await micropip.install('numpy');
+    // install packages built in pyodide
+    await micropip.install('setuptools');    
     await micropip.install('scikit-image');
+    await micropip.install('numpy');
+    // install standard PyPI wheels
+    const pydicom = fs.readdirSync(packageCacheDir).find(f => f.startsWith('pydicom-') && f.endsWith('.whl'));
+    await micropip.install(fs.existsSync(join(packageCacheDir, pydicom)) ? pathToFileURL(join(packageCacheDir, pydicom)).href : 'pydicom');
+    // ...
     await pyodide.runPythonAsync(py);
     micropip.destroy();
   }
