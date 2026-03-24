@@ -1,7 +1,7 @@
 import os from 'node:os';
 import fs from 'node:fs';
 import { fileURLToPath, pathToFileURL } from 'node:url';
-import { dirname, join } from 'node:path';
+import { dirname, basename, join } from 'node:path';
 
 import { loadPyodide } from 'pyodide';
 
@@ -34,14 +34,29 @@ async function __init__(ctx) {
     pyodide = await loadPyodide({ packageCacheDir });
     await pyodide.loadPackage('micropip');
     const micropip = pyodide.pyimport('micropip');
-    // install packages built in pyodide
-    await micropip.install('setuptools');    
-    await micropip.install('scikit-image');
-    await micropip.install('numpy');
-    // install standard PyPI wheels
-    const pydicom = fs.readdirSync(packageCacheDir).find(f => f.startsWith('pydicom-') && f.endsWith('.whl'));
-    await micropip.install(fs.existsSync(join(packageCacheDir, pydicom)) ? pathToFileURL(join(packageCacheDir, pydicom)).href : 'pydicom');
-    // ...
+    for (const p of [
+      'setuptools',
+      'scikit-image',
+      'numpy',
+      // pyodide built-in packages ...
+    ]) {
+      await micropip.install(p);
+    }
+    for (const p of [
+      'pydicom',
+      // pure PyPI wheels ...
+    ]) {
+      let whl = fs.readdirSync(packageCacheDir).find(f => (f.startsWith(`${p}-`) || f.startsWith(`${p}_`)) && f.endsWith('.whl'));
+      if (whl) whl = join(packageCacheDir, whl);
+      if (whl && fs.existsSync(whl)) {
+        const tmp = join(os.tmpdir(), basename(whl));
+        fs.copyFileSync(whl, tmp);
+        await micropip.install(pathToFileURL(tmp).href);
+        fs.unlinkSync(tmp);
+      } else {
+        await micropip.install(p);
+      }
+    }
     await pyodide.runPythonAsync(py);
     micropip.destroy();
   }
