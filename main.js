@@ -65,8 +65,6 @@ async function __init__(ctx) {
 
 export default {
   meta: {
-    name: 'Smooth 2D3D',
-    version: '1.0.0',
     // ...
   },
   async setup(ctx = {/* __file__, __name__, __author__, __version__ */}, electronApp) {
