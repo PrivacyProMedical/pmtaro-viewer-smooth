@@ -12,12 +12,14 @@
       left: 0;
       width: 100%;
       height: 100%;
+      overflow: hidden;
       display: flex;
       flex-direction: column;
     }
     #app {
       position: relative;
       margin: 0;
+      overflow: auto;
     }
   </style>
 </head>
@@ -167,8 +169,8 @@
       data.dragHover = false;
       try {
         const payload = JSON.parse(e.dataTransfer.getData('text') || 'null');
+        console.log('drop:', payload);
         if (payload?.from === 'patient' && payload.selection) {
-          console.log('drop:', payload);
           if (['series', 'instance'].includes(payload.selection.slot)) {
             data.selection = payload.selection;
           } else {
