@@ -57,6 +57,14 @@
         </p>
       </template>
       <template x-if="output">
+        <label class="flex items-center">
+          <input id="roiMask1" type="text" x-model="roiMask1" readonly style="width: 400px" class="bg-slate-800 border-slate-500 rounded mt-1" :title="roiMask1" placeholder="Manual ROI" @click.prevent.stop="roiMask1 ? showInFolder(roiMask1) : openWithVolView(output.filePath, output.fileName, { manualType: 'segmentation', manualInputId: '#roiMask1' })" />
+          <svg x-show="roiMask1" @click.prevent.stop="roiMask1 = null" class="size-6 ml-2 opacity-60 hover:opacity-100 hover:cursor-pointer" xmlns="http://www.w3.org/2000/svg" viewBox="0 0 24 24" fill="currentColor" class="size-6">
+            <path fill-rule="evenodd" d="M5.47 5.47a.75.75 0 0 1 1.06 0L12 10.94l5.47-5.47a.75.75 0 1 1 1.06 1.06L13.06 12l5.47 5.47a.75.75 0 1 1-1.06 1.06L12 13.06l-5.47 5.47a.75.75 0 0 1-1.06-1.06L10.94 12 5.47 6.53a.75.75 0 0 1 0-1.06Z" clip-rule="evenodd" />
+          </svg>
+        </label>
+      </template>
+      <template x-if="output">
         <iframe
           id="vIframe"
           src="about:blank"
@@ -104,6 +112,9 @@
           sigma: 0.3,
           outputDir: '',
           output: null,
+
+          roiMask1: null,
+
           async runSmooth() {
             if (this.processing) return;
             this.processing = true;
@@ -116,7 +127,7 @@
                   showInFolder(res);
                 } else if (res.path) {
                   this.output = { filePath: res.path, fileName: res.name };
-                  const volviewURL = await openWithVolView(this.output.filePath, this.output.fileName, false);
+                  const volviewURL = await openWithVolView(this.output.filePath, this.output.fileName, { newWindow: false });
                   if (volviewURL) {
                     const vIframe = document.getElementById('vIframe');
                     if (vIframe) {
@@ -145,6 +156,14 @@
     window.addEventListener('DOMContentLoaded', () => $electron?.onLoaded());
     window.addEventListener('message', async (e) => {
       if (e.source !== window) {
+        return;
+      }
+      // handle manual roi mask saved from volview
+      if (e.data?.type === 'volview:created-segmentation') {
+        if (e.data.payload?.manualInputId) {
+          const { manualInputId, createdAt, ...data } = e.data.payload;
+          saveManualSegmentation(manualInputId, data);
+        }
         return;
       }
       // ...
@@ -195,8 +214,44 @@
       $electron?.showInFolder(path);
     }
 
-    async function openWithVolView(filePath, fileName, newWindow) {
-      return $electron.openWithVolView(filePath, fileName, { newWindow });
+    async function saveManualSegmentation(manualInputId, data) {
+      if ('$electron' in window && manualInputId) {
+        const {
+          fileContent,
+          fileName,
+          fileType,
+          fileMime,
+        } = data;
+        const {
+          filePath,
+          canceled,
+        } = await $electron?.showSaveDialog({
+          defaultPath: fileName,
+          filters: [{ name: 'Custom File Type', extensions: [fileType] }],
+        });
+        if (!filePath || canceled) {
+          return;
+        }
+        const file = await $electron?.saveFile(filePath, fileContent);
+        if (!file) {
+          return;
+        }
+        const inputEl = document.getElementById(manualInputId.replace('#', ''));
+        if (inputEl) {
+          inputEl.value = file;
+          // ensure alpinejs detects the change
+          inputEl.dispatchEvent(new Event('input', { bubbles: true }));
+        }
+      }
+    }
+
+    async function openWithVolView(filePath, fileName, options = {
+      newWindow: true,
+      // manualInputId: '#anchor',
+      // manualType: 'segmentation',
+      // labelmapFormat: 'dcm',
+    }) {
+      return $electron.openWithVolView(filePath, fileName, options);
     }
   </script>
 </body>
