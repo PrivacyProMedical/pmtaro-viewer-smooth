@@ -186,6 +186,8 @@
     dropzone.addEventListener('drop', function (e) {
       e.preventDefault();
       data.dragHover = false;
+      // Tell Electron this window received the drop so it stays on top & focused
+      $electron?.notifyDrop?.();
       try {
         const payload = JSON.parse(e.dataTransfer.getData('text') || 'null');
         console.log('drop:', payload);
