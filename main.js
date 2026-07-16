@@ -1,5 +1,5 @@
 import { fileURLToPath } from 'node:url';
-import { dirname, basename, join } from 'node:path';
+import { dirname, join } from 'node:path';
 
 import { loadPyodide } from 'pyodide';
 import {
@@ -69,46 +69,22 @@ async function standardSmoothApi(selectionPayload, sigma = 1.0, outputDir) {
     outputDir,
   ]);
 
-  const normalizedSelectionPayload = runtime.cloneJson(resolvedArgs[0]);
-  const selectionEntry = normalizedSelectionPayload?.selection ?? normalizedSelectionPayload;
-  const hostInputPath = selectionEntry?.filePath;
-  const inputFileName = selectionEntry?.fileName || selectionEntry?.name || basename(hostInputPath || 'input.dcm');
-  const virtualInputPath = `/tmp/${Date.now()}_${basename(hostInputPath || inputFileName)}`;
-  const virtualOutputDir = '/tmp/smooth_outputs';
-
-  if (!hostInputPath) {
-    throw new Error('smooth requires selection.selection.filePath for standard mode.');
-  }
-
-  runtime.bridgeHostFileToVFS(hostInputPath, virtualInputPath);
-  selectionEntry.filePath = virtualInputPath;
-  const pyodide = runtime.getPyodide();
-  try {
-    pyodide.FS.mkdir(virtualOutputDir);
-  } catch {}
+  const hostOutputDir = resolvedArgs[2] || join(__dirname, 'api', 'smooth_outputs');
 
   const result = await runtime.invokePythonFunction('smooth', [
-    normalizedSelectionPayload,
+    runtime.stageFilePayload(resolvedArgs[0], 'selection'),
     resolvedArgs[1],
-    virtualOutputDir,
+    hostOutputDir,
   ]);
 
   runtime.validateResult('smooth', result);
-
-  const outputName = result?.selection?.name || `smoothed_${inputFileName}`;
-  const virtualOutputPath = result?.selection?.path;
-  const hostOutputPath = join(resolvedArgs[2], outputName);
-  runtime.bridgeFileFromVFS(virtualOutputPath, hostOutputPath);
+  const bridgedPayload = runtime.bridgeOutputFilePayloadToHost(result, hostOutputDir);
 
   return {
-    ...result,
-    selection: {
-      ...result.selection,
-      path: hostOutputPath,
-    },
+    ...bridgedPayload,
     // Compatibility with the old smooth UI shape.
-    name: outputName,
-    path: hostOutputPath,
+    name: bridgedPayload?.selection?.name,
+    path: bridgedPayload?.selection?.path,
   };
 }
 

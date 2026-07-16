@@ -41,15 +41,12 @@ def smooth(selection, sigma=0.3, output_dir=''):
     if not isinstance(entry, dict):
         entry = payload if isinstance(payload, dict) else None
     if not isinstance(entry, dict):
-        raise ValueError('selection must be an INSTANCE payload object.')
-
-    if entry.get('slot') != 'instance':
-        raise ValueError("selection must have selection.slot == 'instance'.")
+        raise ValueError('selection must be a FILE payload object.')
 
     file_name = entry.get('fileName') or entry.get('name')
-    file_path = entry.get('filePath')
+    file_path = entry.get('path') or entry.get('filePath')
     if not file_name or not file_path:
-        raise ValueError('selection must provide fileName/name and filePath.')
+        raise ValueError('selection must provide fileName/name and path/filePath.')
 
     with open(file_path, 'rb') as fobj:
         dcm_bytes = fobj.read()
@@ -85,7 +82,7 @@ __export_module_api__ = {
     'functions': {
         'smooth': {
             'args': [
-                {'name': 'selection', 'type': 'INSTANCE'},
+                {'name': 'selection', 'type': 'FILE'},
                 {'name': 'sigma', 'type': 'NUMBER', 'required': False, 'default': 0.3},
                 {'name': 'output_dir', 'type': 'STRING'},
             ],

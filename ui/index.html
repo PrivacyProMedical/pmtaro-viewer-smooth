@@ -28,8 +28,8 @@
     <div class="container max-w-md mx-auto">
       <form class="flex flex-col" @submit.prevent="runSmooth">
         <label class="flex flex-col mt-2">
-          <span>Input</span>
-          <input type="text" x-model="selectionName" readonly id="dropzone" :class="dragHover ? 'bg-slate-700' : 'bg-slate-800'" class="border-slate-500 rounded mt-1" placeholder="Drop target here…" />
+          <span>DICOM Input</span>
+          <input type="text" x-model="selectionName" readonly id="dropzone" :class="dragHover ? 'bg-slate-700' : 'bg-slate-800'" class="border-slate-500 rounded mt-1" placeholder="Drop instance or .dcm file here…" />
         </label>
         <label class="flex flex-col mt-4">
           <span>Sigma</span>
@@ -100,7 +100,7 @@
             return {
               'series': '3D',
               'instance': '2D',
-            }[this._selection?.slot] ?? '';
+            }[this._selection?.slot] ?? (this._selection?.isFile ? '2D' : '');
           },
           set selection(val) {
             this._selection = val;
@@ -195,7 +195,15 @@
         }
         return;
       }
-      // ...
+      if (e.data?.type === 'load-args') {
+        const payload = normalizeInputPayload(e.data.args?.[0] ?? null);
+        if (payload) {
+          setTimeout(() => {
+            data.selectionPayload = payload;
+            data.selection = payload.selection;
+          }, 200);
+        }
+      }
     });
     const dropzone = document.getElementById('dropzone');
     dropzone.addEventListener('dragover', function (e) {
@@ -218,19 +226,63 @@
       // Tell Electron this window received the drop so it stays on top & focused
       $electron?.notifyDrop?.();
       try {
-        const payload = JSON.parse(e.dataTransfer.getData('text') || 'null');
+        const payload = normalizeInputPayload(JSON.parse(e.dataTransfer.getData('text') || 'null'));
         console.log('drop:', payload);
-        if (payload?.from === 'patient' && payload.selection) {
-          if (['series', 'instance'].includes(payload.selection.slot)) {
-            data.selectionPayload = payload;
-            data.selection = payload.selection;
-          } else {
-            data.selectionPayload = null;
-            data.selection = null;
-          }
+        if (payload?.selection) {
+          data.selectionPayload = payload;
+          data.selection = payload.selection;
+        } else {
+          data.selectionPayload = null;
+          data.selection = null;
         }
       } catch (err) {}
     });
+
+    function isDicomFileSelection(selection) {
+      if (!(selection?.isFile === true)) {
+        return false;
+      }
+      const type = typeof selection?.type === 'string' ? selection.type.toLowerCase() : '';
+      const name = typeof selection?.name === 'string' ? selection.name.toLowerCase() : '';
+      return type === '.dcm' || name.endsWith('.dcm');
+    }
+
+    function normalizeInputPayload(payload) {
+      if (!payload || typeof payload !== 'object') {
+        return null;
+      }
+
+      if (payload?.from === 'patient' && payload.selection?.slot === 'instance') {
+        const filePath = payload.selection.filePath || payload.selection.path;
+        const name = payload.selection.fileName || payload.selection.name;
+        if (!(filePath && name)) {
+          return null;
+        }
+        return {
+          from: 'module',
+          selection: {
+            name,
+            path: filePath,
+            isFile: true,
+            type: '.dcm',
+          },
+        };
+      }
+
+      if (payload?.from === 'root' && isDicomFileSelection(payload.selection)) {
+        return {
+          from: 'root',
+          selection: {
+            name: payload.selection.name,
+            path: payload.selection.path,
+            isFile: true,
+            type: payload.selection.type || '.dcm',
+          },
+        };
+      }
+
+      return null;
+    }
 
     async function selectOutputDir() {
       const { canceled, filePaths: fullPaths } = await $electron.showOpenDialog({
