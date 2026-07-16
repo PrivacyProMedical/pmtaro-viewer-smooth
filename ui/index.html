@@ -86,8 +86,12 @@
       Alpine.data('app', () => {
         return {
           _selection: null,
+          _selectionPayload: null,
           get selection() {
             return this._selection;
+          },
+          get selectionPayload() {
+            return this._selectionPayload;
           },
           get selectionName() {
             return this._selection?.name ?? '';
@@ -100,6 +104,15 @@
           },
           set selection(val) {
             this._selection = val;
+            if (!val) {
+              this._selectionPayload = null;
+            }
+            if (this.output) {
+              this.output = null;
+            }
+          },
+          set selectionPayload(val) {
+            this._selectionPayload = val;
             if (this.output) {
               this.output = null;
             }
@@ -121,7 +134,12 @@
 
             this.output = null;
             try {
-              const res = await $electron?.api('@pmt/smooth/smooth', JSON.parse(JSON.stringify(this.selection)), parseFloat(this.sigma), this.outputDir);
+              const res = await $electron?.api(
+                '@pmt/smooth/smooth',
+                JSON.parse(JSON.stringify(this.selectionPayload ?? this.selection)),
+                parseFloat(this.sigma),
+                this.outputDir,
+              );
               if (res) {
                 if (typeof res === 'string') {
                   showInFolder(res);
@@ -152,6 +170,17 @@
         data = app._x_dataStack[0];
       }, 100);
     });
+
+    window.__debugExportModuleApi = async function () {
+      try {
+        const snapshot = await $electron?.api('@pmt/smooth/__debug_export_module_api__');
+        console.log('[export module api debug]', snapshot);
+        return snapshot;
+      } catch (err) {
+        console.error('[export module api debug] failed', err);
+        throw err;
+      }
+    };
 
     window.addEventListener('DOMContentLoaded', () => $electron?.onLoaded());
     window.addEventListener('message', async (e) => {
@@ -193,8 +222,10 @@
         console.log('drop:', payload);
         if (payload?.from === 'patient' && payload.selection) {
           if (['series', 'instance'].includes(payload.selection.slot)) {
+            data.selectionPayload = payload;
             data.selection = payload.selection;
           } else {
+            data.selectionPayload = null;
             data.selection = null;
           }
         }
