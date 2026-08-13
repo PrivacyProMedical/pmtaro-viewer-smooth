@@ -144,8 +144,6 @@ export default {
     async smooth(selectionPayload, sigma = 1.0, outputDir) {
       return standardSmoothApi(selectionPayload, sigma, outputDir);
     },
-
-    __debug_export_module_api__: runtime.createDebugHandler(),
   },
   // contextMenus: [],
 };

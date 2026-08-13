@@ -70,25 +70,3 @@ def smooth(selection, sigma=0.3, output_dir=''):
     }
 
 # def smooth_3d ...
-
-# Standard-mode export declaration.
-#
-# This optional object is how a Python module explicitly declares which public
-# functions are exported to the module frontend, along with their standardized
-# argument and return types. Any other `def` in this file remains available as
-# free-mode reference code or internal helper logic.
-__export_module_api__ = {
-    'version': 1,
-    'functions': {
-        'smooth': {
-            'args': [
-                {'name': 'selection', 'type': 'FILE'},
-                {'name': 'sigma', 'type': 'NUMBER', 'required': False, 'default': 0.3},
-                {'name': 'output_dir', 'type': 'STRING'},
-            ],
-            'returns': {
-                'type': 'FILE',
-            },
-        },
-    },
-}

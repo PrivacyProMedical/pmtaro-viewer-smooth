@@ -1,0 +1,15 @@
+{
+  "version": 1,
+  "functions": {
+    "smooth": {
+      "args": [
+        { "name": "selection", "type": "FILE" },
+        { "name": "sigma", "type": "NUMBER", "required": false, "default": 0.3 },
+        { "name": "output_dir", "type": "STRING" }
+      ],
+      "returns": {
+        "type": "FILE"
+      }
+    }
+  }
+}
