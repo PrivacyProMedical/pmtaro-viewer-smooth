@@ -1,3 +1,4 @@
+import fs from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
 
@@ -88,6 +89,76 @@ async function standardSmoothApi(selectionPayload, sigma = 1.0, outputDir) {
   };
 }
 
+// Series (3D) entry point. Python writes one smoothed DICOM per input slice
+// into the Pyodide VFS and returns a manifest; this bridge copies each slice to
+// the host and assembles a standard SERIES payload, so the node can be wired
+// into other SERIES consumers (@pmt/series-mip, @pmt/mpfsl, ...).
+async function standardSmoothSeriesApi(dataSeriesPayload, sigma = 0.3, sigmaZ = 0.0, outputDir) {
+  await __init__();
+
+  const resolvedArgs = runtime.validateCall('smooth_series', [
+    dataSeriesPayload,
+    parseFloat(sigma),
+    parseFloat(sigmaZ),
+    outputDir,
+  ]);
+
+  const hostRoot = resolvedArgs[3] || join(__dirname, 'api', 'smooth_series_outputs');
+
+  const result = await runtime.invokePythonFunction('smooth_series', [
+    runtime.stageSeriesPayload(resolvedArgs[0], 'data_series'),
+    resolvedArgs[1],
+    resolvedArgs[2],
+    hostRoot,
+  ]);
+
+  const seriesDir = join(hostRoot, result.seriesName);
+  fs.mkdirSync(seriesDir, { recursive: true });
+
+  const instances = {};
+  const instancesInOrder = [];
+  for (const slice of result.slices) {
+    const hostPath = join(seriesDir, slice.name);
+    runtime.bridgeFileFromVFS(slice.virtualPath, hostPath);
+    instances[slice.key] = {
+      name: slice.name,
+      fileName: slice.name,
+      filePath: hostPath,
+      isFile: true,
+      isVolume: false,
+      InstanceNumber: slice.instanceNumber,
+    };
+    instancesInOrder.push({ key: slice.key, InstanceNumber: slice.instanceNumber });
+  }
+
+  const seriesPayload = {
+    from: 'patient',
+    root: hostRoot,
+    // Synthesized label path: this series has no parsed-tree ancestry.
+    keys: [hostRoot, 'smooth-series', result.seriesName],
+    selection: {
+      slot: 'series',
+      level: 3,
+      name: result.seriesName,
+      SeriesDescription: result.seriesDescription,
+      instances,
+      instancesInOrder,
+    },
+  };
+
+  runtime.validateResult('smooth_series', seriesPayload);
+
+  return {
+    ...seriesPayload,
+    summary: {
+      outputDir: seriesDir,
+      instanceCount: result.instanceCount,
+      sigma: result.sigma,
+      sigma_z: result.sigma_z,
+    },
+  };
+}
+
 export default {
   meta: {
     // ...
@@ -143,6 +214,10 @@ export default {
 
     async smooth(selectionPayload, sigma = 1.0, outputDir) {
       return standardSmoothApi(selectionPayload, sigma, outputDir);
+    },
+
+    async smooth_series(dataSeriesPayload, sigma = 0.3, sigmaZ = 0.0, outputDir) {
+      return standardSmoothSeriesApi(dataSeriesPayload, sigma, sigmaZ, outputDir);
     },
   },
   // contextMenus: [],

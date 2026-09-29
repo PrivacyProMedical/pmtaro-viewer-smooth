@@ -10,6 +10,17 @@
       "returns": {
         "type": "FILE"
       }
+    },
+    "smooth_series": {
+      "args": [
+        { "name": "data_series", "type": "SERIES" },
+        { "name": "sigma", "type": "NUMBER", "required": false, "default": 0.3, "placeholder": "In-plane sigma (voxels)" },
+        { "name": "sigma_z", "type": "NUMBER", "required": false, "default": 0.0, "placeholder": "Through-plane sigma (slices); 0 = per-slice 2D" },
+        { "name": "output_dir", "type": "STRING", "required": false, "default": "" }
+      ],
+      "returns": {
+        "type": "SERIES"
+      }
     }
   }
 }

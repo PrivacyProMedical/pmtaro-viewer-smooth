@@ -46,6 +46,46 @@
           <span x-text="processing ? 'Processing…' : `Smooth${selectionType}${selectionType === '3D' ? ' (WIP)' : ''}`"></span>
         </button>
       </form>
+      <hr class="my-5 border-slate-700" />
+      <form class="flex flex-col" @submit.prevent="runSmoothSeries">
+        <span class="text-sm font-semibold text-slate-200">Smooth Series (3D)</span>
+        <span class="text-xs text-slate-400 mt-1">
+          Consumes a parsed-tree <code>SERIES</code> and writes a new DICOM series
+          (<code>&lt;series-description&gt;-smoothed/</code>). Sigma Z = 0 smooths each
+          slice in 2D; &gt; 0 applies a true 3D Gaussian. Both sigmas are in voxels.
+        </span>
+        <label class="flex flex-col mt-3">
+          <span>DICOM Series Input</span>
+          <input type="text" x-model="seriesName" readonly id="dropzone-series" :class="seriesDragHover ? 'bg-slate-700' : 'bg-slate-800'" class="border-slate-500 rounded mt-1" placeholder="Drop a series here…" />
+        </label>
+        <label class="flex flex-col mt-4">
+          <span>Sigma (in-plane, voxels)</span>
+          <input type="number" x-model.number="seriesSigma" step="0.1" min="0" class="bg-slate-800 border-slate-500 rounded mt-1" placeholder="0.3" />
+        </label>
+        <label class="flex flex-col mt-4">
+          <span>Sigma Z (through-plane, slices) — 0 = per-slice 2D</span>
+          <input type="number" x-model.number="seriesSigmaZ" step="0.1" min="0" class="bg-slate-800 border-slate-500 rounded mt-1" placeholder="0" />
+        </label>
+        <label class="flex flex-col mt-4">
+          <span>Output Folder</span>
+          <input type="text" x-model="outputDir" readonly class="bg-slate-800 border-slate-500 rounded mt-1" :title="outputDir" @click="selectOutputDir()" />
+        </label>
+        <button type="submit" class="inline-flex justify-center items-center text-center bg-emerald-600 px-3 py-2 mt-4 rounded hover:cursor-pointer disabled:cursor-not-allowed disabled:bg-emerald-300/30 disabled:text-gray-300" :disabled="!seriesPayload || !outputDir || seriesProcessing">
+          <template x-if="seriesProcessing">
+            <svg class="mr-3 -ml-1 size-5 animate-spin text-white" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24"><circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle><path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"></path></svg>
+          </template>
+          <span x-text="seriesProcessing ? 'Processing…' : 'Smooth Series'"></span>
+        </button>
+      </form>
+      <template x-if="seriesOutput">
+        <p class="mt-3">
+          Series output:<br />
+          <code class="text-xs break-all" x-text="seriesOutput.dir"></code>
+          <span class="text-sm text-gray-400 hover:text-white hover:cursor-pointer ml-2" @click.prevent.stop="showInFolder(seriesOutput.dir)">Show in Folder</span>
+          <br />
+          <span class="text-xs text-slate-400" x-text="seriesOutput.detail"></span>
+        </p>
+      </template>
       <br />
       <template x-if="output">
         <p>
@@ -128,6 +168,54 @@
 
           roiMask1: null,
 
+          // --- Series (3D) state -------------------------------------------
+          seriesPayload: null,
+          get seriesName() {
+            return this.seriesPayload?.selection?.name ?? '';
+          },
+          setSeriesPayload(payload) {
+            this.seriesPayload = payload;
+            this.seriesOutput = null;
+          },
+          seriesDragHover: false,
+          seriesDragTimeout: null,
+          seriesProcessing: false,
+          seriesSigma: 0.3,
+          seriesSigmaZ: 0,
+          seriesOutput: null,
+
+          async runSmoothSeries() {
+            if (this.seriesProcessing) return;
+            this.seriesProcessing = true;
+            this.seriesOutput = null;
+            try {
+              const res = await $electron?.api(
+                '@pmt/smooth/smooth_series',
+                JSON.parse(JSON.stringify(this.seriesPayload ?? null)),
+                parseFloat(this.seriesSigma),
+                parseFloat(this.seriesSigmaZ),
+                this.outputDir,
+              );
+              console.log('series output:', res);
+              if (res?.summary) {
+                this.seriesOutput = {
+                  dir: res.summary.outputDir,
+                  detail: `${res.summary.instanceCount} slice(s) · sigma ${res.summary.sigma} · sigma_z ${res.summary.sigma_z}`,
+                };
+              } else if (res?.selection?.instances) {
+                this.seriesOutput = {
+                  dir: res.root,
+                  detail: 'Series written.',
+                };
+              }
+            } catch (err) {
+              console.error(err);
+              alert(err?.message || String(err));
+            } finally {
+              this.seriesProcessing = false;
+            }
+          },
+
           async runSmooth() {
             if (this.processing) return;
             this.processing = true;
@@ -196,7 +284,15 @@
         return;
       }
       if (e.data?.type === 'load-args') {
-        const payload = normalizeInputPayload(e.data.args?.[0] ?? null);
+        const raw = e.data.args?.[0] ?? null;
+        const series = normalizeSeriesPayload(raw);
+        if (series) {
+          setTimeout(() => {
+            data.setSeriesPayload(series);
+          }, 200);
+          return;
+        }
+        const payload = normalizeInputPayload(raw);
         if (payload) {
           setTimeout(() => {
             data.selectionPayload = payload;
@@ -246,6 +342,52 @@
       const name = typeof selection?.name === 'string' ? selection.name.toLowerCase() : '';
       return type === '.dcm' || name.endsWith('.dcm');
     }
+
+    // The series dropzone passes a parsed-tree SERIES payload through unchanged:
+    // SERIES is already the type this entry point declares.
+    function normalizeSeriesPayload(payload) {
+      if (!payload || typeof payload !== 'object') {
+        return null;
+      }
+      if (payload.from === 'patient' && payload.selection?.slot === 'series') {
+        return payload;
+      }
+      return null;
+    }
+
+    // --- series dropzone (static element, never inside <template x-for>) ------
+    const seriesDropzone = document.getElementById('dropzone-series');
+    seriesDropzone.addEventListener('dragover', function (e) {
+      e.preventDefault();
+      data.seriesDragHover = true;
+      if (data.seriesDragTimeout !== null) {
+        clearTimeout(data.seriesDragTimeout);
+        data.seriesDragTimeout = null;
+      }
+    });
+    seriesDropzone.addEventListener('dragleave', function () {
+      data.seriesDragTimeout = setTimeout(() => {
+        data.seriesDragHover = false;
+        data.seriesDragTimeout = null;
+      }, 50);
+    });
+    seriesDropzone.addEventListener('drop', function (e) {
+      e.preventDefault();
+      data.seriesDragHover = false;
+      $electron?.notifyDrop?.();
+      try {
+        const payload = JSON.parse(e.dataTransfer.getData('text') || 'null');
+        const series = normalizeSeriesPayload(payload);
+        if (series) {
+          data.setSeriesPayload(series);
+        } else {
+          data.setSeriesPayload(null);
+          alert('Drop a whole series here (patient tree → series). Use the DICOM Input field above for a single instance.');
+        }
+      } catch (err) {
+        console.error(err);
+      }
+    });
 
     function normalizeInputPayload(payload) {
       if (!payload || typeof payload !== 'object') {
